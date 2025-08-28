@@ -1,13 +1,9 @@
-import pool from "./src/config/db.js";
-
-
-const testDB = async () => {
+app.get("/test-db", async (req, res) => {
   try {
     const [rows] = await pool.query("SELECT NOW() AS currentTime");
-    console.log("✅ Connected to TiDB:", rows);
-  } catch (err) {
-    console.error("❌ DB Connection Error:", err.message);
+    res.json({ success: true, time: rows[0].currentTime });
+  } catch (error) {
+    console.error("DB test failed:", error.message);
+    res.status(500).json({ success: false, error: error.message });
   }
-};
-
-testDB();
+});
