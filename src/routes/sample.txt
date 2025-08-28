@@ -1,0 +1,105 @@
+import express from "express";
+import multer from "multer";
+import cloudinary from "../config/cloudinary.js";
+import pool from "../config/db.js";
+
+const router = express.Router();
+const upload = multer({ dest: "uploads/" });
+
+// Middleware: only for upload/delete
+const authorizeEmail = async (req, res, next) => {
+  try {
+    const email = req.headers["x-user-email"];
+    if (!email) return res.status(401).json({ error: "Email required" });
+
+    const [rows] = await pool.execute(
+      "SELECT * FROM allowed_users WHERE email = ?",
+      [email]
+    );
+
+    if (rows.length === 0) return res.status(403).json({ error: "Unauthorized email" });
+
+    req.userEmail = email; // save for later use
+    next();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Authorization check failed" });
+  }
+};
+
+// ✅ Public route → fetch ALL images
+router.get("/", async (req, res) => {
+  try {
+    const [rows] = await pool.execute(
+      "SELECT * FROM images ORDER BY id DESC"
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not fetch images" });
+  }
+});
+
+// 🔒 Upload image (authorized only)
+router.post("/", authorizeEmail, upload.single("image"), async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: "No file uploaded" });
+
+    const result = await cloudinary.uploader.upload(file.path, { folder: "gallery" });
+
+    const [rows] = await pool.execute(
+      "INSERT INTO images (image_url, public_id) VALUES (?, ?)",
+      [result.secure_url, result.public_id]
+    );
+
+    res.json({
+      id: rows.insertId,
+      image_url: result.secure_url,
+      public_id: result.public_id,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Upload failed" });
+  }
+});
+
+// 🔒 Delete image (authorized only)
+router.delete("/:id", authorizeEmail, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [rows] = await pool.execute("SELECT * FROM images WHERE id = ?", [id]);
+    if (rows.length === 0) return res.status(404).json({ error: "Image not found" });
+
+    const image = rows[0];
+    await cloudinary.uploader.destroy(image.public_id);
+    await pool.execute("DELETE FROM images WHERE id = ?", [id]);
+
+    res.json({ message: "Image deleted successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Delete failed" });
+  }
+});
+
+// ✅ New route: check if email is admin
+router.post("/check-admin", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, error: "Email required" });
+
+    const [rows] = await pool.execute("SELECT * FROM allowed_users WHERE email = ?", [email]);
+
+    if (rows.length > 0) {
+      return res.json({ success: true });
+    } else {
+      return res.json({ success: false });
+    }
+  } catch (err) {
+    console.error("check-admin error:", err);
+    res.status(500).json({ success: false, error: "Server error" });
+  }
+});
+
+export default router;
