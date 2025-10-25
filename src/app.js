@@ -24,7 +24,12 @@ app.use(express.urlencoded({ extended: true }));
 // ✅ Health check endpoint
 app.get("/healthz", (req, res) => res.json({ ok: true }));
 
-// ✅ Routes
+// 👇 Lightweight PING endpoint for cron-job.org / keeping Render awake
+app.get("/api/ping", (req, res) => {
+  res.status(200).send("ok"); // fast response, no DB queries
+});
+
+// ✅ Mount gallery routes AFTER ping
 app.use("/api/gallery", galleryRoutes);
 
 // ✅ Global error handler
